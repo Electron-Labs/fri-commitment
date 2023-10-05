@@ -165,7 +165,7 @@ pub fn low_degree_extension_proof(poly_org: DensePolynomial<Fr>) {
         degree_now/=2; //floor here
         println!("domain_br {:?}",domain_size);
         for i in 0..queries.len() {
-            queries[i] = (queries[i]*2)%(domain_size/2);
+            queries[i] = (queries[i])%(domain_size/2);
         }
         queries.sort();
         queries.dedup();
@@ -219,11 +219,11 @@ pub fn low_degree_extension_proof(poly_org: DensePolynomial<Fr>) {
             assert!(merkle_proofs[i][j+1].verify(merkle_tree_roots[i], &[neg_idx], &[eval_neg_bytes], verify_domain_size));
 
             let eval_domain_verifier: GeneralEvaluationDomain<Fr> = GeneralEvaluationDomain::new(verify_domain_size).unwrap();
-            let denom = eval_domain_verifier.group_gen().pow([i as u64]).mul(Fr::from(2));
+            let denom = eval_domain_verifier.element(pos_idx) * Fr::from(2);
             // println!("eval_dom_elems {:?}", eval_domain_elements);
             // let denom = eval_domain_verifier.element(pos_idx)*Fr::from(2);
             println!("denom {:?}", denom);
-            let next_level_idx = (pos_idx*2)%(verify_domain_size/2);
+            let next_level_idx = (pos_idx)%(verify_domain_size/2);
             println!("next_level_idx {:?}", next_level_idx);
             let next_level_val = 
                 (((eval_pos+eval_neg))/(Fr::from(2))) + (rand*((eval_pos-eval_neg)/denom));
@@ -238,14 +238,14 @@ pub fn low_degree_extension_proof(poly_org: DensePolynomial<Fr>) {
             };
             
 
-            // if i>0 {
-            //     assert_eq!(level_evals[i-1].get(&pos_idx).unwrap(), &eval_pos);
-            // }
+            if i>0 {
+                assert_eq!(level_evals[i-1].get(&pos_idx).unwrap(), &eval_pos);
+            }
         }
         level_evals.push(val_map);
         verify_domain_size /= 2;
         for j in 0..queries.len() {
-            queries[j] = (queries[j]*2)%(verify_domain_size);
+            queries[j] = (queries[j])%(verify_domain_size);
         }
         queries.sort();
         queries.dedup();
