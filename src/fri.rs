@@ -1,272 +1,257 @@
-// FRI Low Degree Testing
-
-// --- Generate Proof ---
-// 1. Get a Polynomial
-// 2. Get domain at degree * bp_factor
-// 3. get array of evals at this point
-// 4. Splittng
-// 5. Mixing
-// 4. Comitting
-// 5. Give Merkle proofs for t queries at the end? 
-// if queried at f(w):
-// give proof for f0(w) and f0(-w)
-// give proof for f1(w^2) and f1(-w^2)
-// give proof for f2(w^3) and f2(-w^3)
-// ... so on
-
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
-use ark_ff::Fp256;
-// --- Verify FRI LDT ---
-// 1. Merkle Proof verfcn for points at each query
-// 2. round by round consistency checks for each round
+use ark_ff::PrimeField;
 use ark_poly::{polynomial::univariate::DensePolynomial, EvaluationDomain, Polynomial};
 
-use ark_bn254::Fr;
 use ark_poly::GeneralEvaluationDomain;
-use rs_merkle::{MerkleTree, MerkleProof};
-// use rs_merkle::algorithms::Sha256;
-use rs_merkle::algorithms::Sha256;
 use ark_poly::DenseUVPolynomial;
-use ark_std::{rand::Rng, UniformRand, ops::{Mul, Add}};
-use ark_ff::Field;
+use ark_std::ops::{Mul, Add};
 
-const bp_factor: usize = 2;
-const t_queries: [usize; 4] = [1,2,5,7];
-// const t_queries: [usize; 1] = [1];
+use crate::hasher::Hasher_;
+use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
 
+const T_QUERIES: [usize; 4] = [1,2,5,7];
 
+#[derive(Clone)]
+pub struct FriConfig {
+    num_query: u32,
+    blow_up_factor: u32,
+    last_polynomial_degree: u32,
+}
 
-pub fn low_degree_extension_proof(poly_org: DensePolynomial<Fr>) {
+#[derive(Debug)]
+pub struct QueryEvalProofs<F: PrimeField,H: Hasher_<F>> {
+    merkle_proof: MerkleProof_<[u8; 32]>,
+    evaluation: F,
+    _h: PhantomData<H>
+}
+
+#[derive(Debug)]
+pub struct FRIProof<F: PrimeField, H:Hasher_<F>> {
+    final_evaluations: Vec<F>,
+    query_eval_proofs: Vec<HashMap<usize, QueryEvalProofs<F,H>>>, // len -> number of rounds
+    level_roots: Vec<[u8; 32]>,
+    verifier_randoms: Vec<F>,
+    _h: PhantomData<H>
+}
+
+pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
+ -> FRIProof<F, H> {
     let mut rng = ark_std::test_rng();
 
-    let mut poly_x: Vec<DensePolynomial<Fr>>  = Vec::new();
+    let coefficients_length = polynomial.coeffs.len();
 
-    let degree = poly_org.coeffs.len(); 
-    
-    poly_x.push(poly_org.clone());
-    
-    let mut degree_now = degree; // basically coeffs called degree here
+    let blow_up = fri_config.blow_up_factor;
 
-    let mut merkle_trees = Vec::new();
+    let queries: Vec<usize> = T_QUERIES.clone().into();
 
-    let mut merkle_tree_roots: Vec<[u8; 32]> = Vec::new();
+    // Store merkle roots corresponding to each level
+    let mut merkle_roots: Vec<[u8; 32]> = Vec::new();
 
-    let mut merkle_proofs: Vec<Vec<MerkleProof<Sha256>>> = Vec::new();
+    // Store merkle objects corresponding to each level (used query by query to generate eval proof)
+    let mut merkle_objs: Vec<Merkle<F, H>> = Vec::new();
 
-    let mut verifier_rands = Vec::<Fr>::new();
+    // Store all the randomness generated on verifier behalf
+    let mut verifier_rands: Vec<F> = Vec::new();
 
-    let mut curr_poly_idx = 0;
+    // Keeps track of current polynomial on each step of splitting and mixing
+    let mut current_polynomial = polynomial.clone();
 
-    let mut query_evaluations: Vec<Vec<Fr>> = vec![];
+    let num_levels = (((coefficients_length as u32)/(fri_config.last_polynomial_degree+1)) as f32).log2() as usize;
 
-    let mut final_evaluation: Vec<Fr> = vec![];
-    let mut queries: Vec<usize> = t_queries.clone().into();
+    // Keeps track of evaluation and merkle proofs for each query on different levels
+    let mut query_eval_proofs: Vec<HashMap<usize, QueryEvalProofs<F,H>>> = Vec::new();
 
-    let mut round: u32 = 1;
+    // store first level original domain ( this will help to get queries to evaluate on for each round )
+    let original_domain = coefficients_length * blow_up as usize;
 
-    while true {
-        println!("-- level {:?} ---", curr_poly_idx);
-        println!("query {:?}", queries);
-        
+    // last level final evaluation
+    let mut final_level_evaluations: Vec<F> = Vec::new();
 
-        let poly = poly_x[curr_poly_idx].clone();
-        println!("poly_coeffs {:?}", poly.coeffs());
-        println!("degree {:?}", degree_now);
+    println!("Generating proof :");
+    println!("num levels {:?}", num_levels);
+    println!("original domain {:?}", original_domain);
 
-        let mut domain_size = degree_now * bp_factor;
+    // Iterate over each level and pre-calculate evaluations and merkles
+    println!("---- Iterating through FRI levels : ----");
+    for i in 0..num_levels+1 {
+        println!("*** Level {:?} ***", i);
+        let eval_proof = HashMap::new();
+        query_eval_proofs.push(eval_proof);
 
-        let eval_domain: GeneralEvaluationDomain<Fr> = GeneralEvaluationDomain::new(domain_size).unwrap();
+        let coeffs_length = current_polynomial.coeffs.len();
+        println!("coefficient length : {:?}", coeffs_length);
 
-        let evaluations_1: Vec<Fr> = eval_domain.elements().map(|d: Fr| return poly.evaluate(&d)).collect();
+        // 1. Get evaluation domain (roots of unity multiplicative subroup size)
+        let domain_size = coeffs_length * blow_up as usize;
+        let eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size).unwrap();
+        println!("domain size : {:?}", domain_size);
+        // 2. Generate evaluations over the eval_domain
+        let evaluations: Vec<F> = eval_domain.elements().map(|d| return current_polynomial.evaluate(&d)).collect();
 
-        if degree_now == 1 {
-            assert_eq!(poly.coeffs.len(), 1);
-            final_evaluation = evaluations_1;
+        if i==num_levels {
+            // final level evaluations
+            println!("Reached till final polynomial degree {:?}", current_polynomial.degree());
+            final_level_evaluations = evaluations;
             break;
         }
 
-        domain_size = evaluations_1.len();
+        let merkle = Merkle::<F, H>::new(&evaluations);
+        merkle_roots.push(merkle.root());
+        merkle_objs.push(merkle);
 
-        println!("domain size {:?}", evaluations_1.len());
-
-        let mut ev1_bytes: Vec<Vec<u8>> = evaluations_1.iter().map(|ev| 
-            ev.0.0.iter().flat_map(|e_64| e_64.to_le_bytes()).collect()
-        ).collect();
-
-        let ev1_bytes_: Vec<[u8;32]> = ev1_bytes.iter().map(|x| x.clone().try_into().unwrap()).collect();
-
-        
-        let mk1 = MerkleTree::<Sha256>::from_leaves(&ev1_bytes_);
-        // merkle_roots.push(mk1.root().unwrap());
-        merkle_trees.push(mk1.clone());
-
-        merkle_tree_roots.push(mk1.root().unwrap());
-
-        let mut proofs_this_level = Vec::<MerkleProof<Sha256>>::new();
-
-        let mut this_level_query_evals = Vec::<Fr>::new();
-
-        for i in 0..queries.len() {
-            let pos_idx = queries[i];
-            let neg_idx = (queries[i]+domain_size/2)%domain_size;
-            this_level_query_evals.push(evaluations_1[pos_idx]);
-            if(i==0) {
-                println!("proof-{:?}, {:?}, {:?}, {:?}", mk1.root().unwrap(), pos_idx, mk1.leaves().unwrap()[pos_idx], mk1.leaves_len());
-                let mk1_proof = mk1.proof(&[pos_idx]);
-                assert!(mk1_proof.verify(
-                   mk1.root().unwrap(), &[pos_idx], &[mk1.leaves().unwrap()[pos_idx]], mk1.leaves_len()));
-            }
-            
-            proofs_this_level.push(mk1.proof(&[pos_idx]));
-            
-            this_level_query_evals.push(evaluations_1[neg_idx]);
-            proofs_this_level.push(mk1.proof(&[neg_idx]));
-        }
-
-        query_evaluations.push(this_level_query_evals);
-
-        assert_eq!(proofs_this_level.len() , queries.len()*2);
-
-        merkle_proofs.push(proofs_this_level);
-
-
-        let ver_rand_1 = Fr::rand(&mut rng);
-
-        verifier_rands.push(ver_rand_1);
-
-        let mut mixed_coeffs= Vec::<Fr>::new();
-        let mut even_coeffs: Vec<Fr> = vec![];
-        let mut odd_coeffs: Vec<Fr> = vec![];
-        for i in 0..poly.coeffs.len() {
-        // for i in (0..poly.coeffs.len()).step_by(2) {
-            // if poly.coeffs.len() == i+1 {
-            //     mixed_coeffs.push(poly.coeffs[i])
-            // }else {
-            //     mixed_coeffs.push(poly.coeffs[i] + (ver_rand_1 * poly.coeffs[i+1]));
-            // }
+        let mut even_coeffs: Vec<F> = Vec::new();
+        let mut odd_coeffs: Vec<F> = Vec::new();
+        for i in 0..coeffs_length {
             if i%2==0 {
-                even_coeffs.push(poly.coeffs[i]);
+                even_coeffs.push(current_polynomial.coeffs[i]);
             } else {
-                odd_coeffs.push(poly.coeffs[i]);
+                odd_coeffs.push(current_polynomial.coeffs[i]);
             }
         }
-        let even_ploy: DensePolynomial<Fr> = DenseUVPolynomial::from_coefficients_vec(even_coeffs);
-        let odd_poly: DensePolynomial<Fr> = DensePolynomial::from_coefficients_vec(odd_coeffs);
+        let even_ploy: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(even_coeffs);
+        let odd_poly: DensePolynomial<F> = DensePolynomial::from_coefficients_vec(odd_coeffs);
 
-        let mixed_poly_1 = even_ploy.add(odd_poly.mul(ver_rand_1));
+        //[TODO] replace later by Fiat-Shamir
+        let verifier_rand = F::rand(&mut rng);
+        verifier_rands.push(verifier_rand);
+        let mixed_poly = even_ploy.add(odd_poly.mul(verifier_rand));
 
-        // let mixed_poly_1: DensePolynomial<Fr> = DenseUVPolynomial::from_coefficients_vec(mixed_coeffs);
-
-        poly_x.push(mixed_poly_1.clone());
-
-        curr_poly_idx += 1;
-
-        degree_now/=2; //floor here
-        println!("domain_br {:?}",domain_size);
-        for i in 0..queries.len() {
-            queries[i] = (queries[i])%(domain_size/2);
-        }
-        queries.sort();
-        queries.dedup();
-
-        round += 1;
+        current_polynomial = mixed_poly;
     }
-    println!("final evaluation: {:?}", final_evaluation);
 
-    // --- Verification ---
+    // Iterate over each query
+    println!("--- Iterating through FRI queries from verifier ---");
+    println!("Queries : {:?}", queries);
+    for i in 0..fri_config.num_query {
+        let mut domain_size_current = original_domain;
+        // [TODO] Query should be from fiat shamir
+        let q_init = queries[i as usize];
+        for l in 0..num_levels {
+            let q = q_init%domain_size_current;
+            println!("query -- {:?} level {:?} domain_size {:?}", q, l, domain_size_current);
+            let pos_idx = q;
+            let neg_idx = (q + (domain_size_current/2)) % domain_size_current;
+            if !query_eval_proofs[l].contains_key(&pos_idx) {
+                query_eval_proofs[l].insert(
+                    pos_idx,
+                    QueryEvalProofs::<F,H>{
+                        merkle_proof: merkle_objs[l].proof(pos_idx),
+                        evaluation: merkle_objs[l].get_leaf(pos_idx),
+                        _h: PhantomData,
+                    });
+            }
+            if !query_eval_proofs[l].contains_key(&neg_idx) {
+                query_eval_proofs[l].insert(
+                    neg_idx, 
+                    QueryEvalProofs::<F,H>{
+                        merkle_proof: merkle_objs[l].proof(neg_idx),
+                        evaluation: merkle_objs[l].get_leaf(neg_idx),
+                        _h: PhantomData,
+                    });
+            }
+            domain_size_current/=2;
+        }
+    }
+
+    FRIProof { 
+        final_evaluations: final_level_evaluations, 
+        query_eval_proofs,
+        level_roots: merkle_roots,
+        verifier_randoms :verifier_rands,
+        _h: PhantomData,
+    }
+ }
+
+pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
+    println!("--- Verifying FRI LDE check for degree {:?} ---", degree);
+    let queries: Vec<usize> = T_QUERIES.clone().into();
+
+    let final_evaluations = fri_proof.final_evaluations;
+
+    let final_evalutaion_degree = fri_config.last_polynomial_degree;
+
+    let eval_proofs = fri_proof.query_eval_proofs;
+    let level_roots = fri_proof.level_roots;
+
+    assert_eq!(final_evaluations.len() as u32, fri_config.blow_up_factor*(fri_config.last_polynomial_degree+1));
     
-    // check the number of levels
-    let levels = merkle_proofs.len(); // -> log2(k)
-    print!("levels {:?}", levels);
-    let correct_levels = (degree as f32).log2() as usize;
-    assert_eq!(levels, correct_levels);
-
-
-    // verify level by level
-    queries = t_queries.clone().into();
-    let last_codeword_len = final_evaluation.len();
-    assert_eq!(last_codeword_len, bp_factor);
-    let mut verify_domain_size = degree * bp_factor;
-
-    let mut level_evals: Vec<HashMap<usize, Fr>> = Vec::new();
-
-    for i in 0..levels {
-        println!("levels --- {i}");
-        assert_eq!(queries.len()*2, merkle_proofs[i].len());
-        let rand = verifier_rands[i];
-        println!("round -- {i}, alpha -- {:?}", rand);
-        let mut val_map = HashMap::<usize, Fr>::new();
-        for j in (0..merkle_proofs[i].len()).step_by(2) {
-            println!("j {:?}", j);
-            // let proof = &merkle_proofs[i][j];
-
-
-            let pos_idx = queries[j/2];
-            let neg_idx = (queries[j/2]+verify_domain_size/2)%verify_domain_size;
-            let eval_pos = query_evaluations[i][j];
-            let eval_pos_bytes: Vec<u8> = eval_pos.0.0.iter().flat_map(|e_64| e_64.to_le_bytes()).collect();
-            let eval_pos_bytes: [u8; 32] = eval_pos_bytes.try_into().unwrap();
-            if(j==0){
-                println!("verify -- {:?} {:?} {:?} {:?}",merkle_tree_roots[i], pos_idx, eval_pos_bytes, verify_domain_size);
-            }
-            assert!(merkle_proofs[i][j].verify(merkle_tree_roots[i], &[pos_idx], &[eval_pos_bytes], verify_domain_size));
-
-            let eval_neg = query_evaluations[i][j+1];
-            let eval_neg_bytes: Vec<u8> = eval_neg.0.0.iter().flat_map(|e_64| e_64.to_le_bytes()).collect();
-            let eval_neg_bytes: [u8; 32] = eval_neg_bytes.try_into().unwrap();
-
-            assert!(merkle_proofs[i][j+1].verify(merkle_tree_roots[i], &[neg_idx], &[eval_neg_bytes], verify_domain_size));
-
-            let eval_domain_verifier: GeneralEvaluationDomain<Fr> = GeneralEvaluationDomain::new(verify_domain_size).unwrap();
-            let denom = eval_domain_verifier.element(pos_idx) * Fr::from(2);
-            // println!("eval_dom_elems {:?}", eval_domain_elements);
-            // let denom = eval_domain_verifier.element(pos_idx)*Fr::from(2);
-            println!("denom {:?}", denom);
-            let next_level_idx = (pos_idx)%(verify_domain_size/2);
-            println!("next_level_idx {:?}", next_level_idx);
-            let next_level_val = 
-                (((eval_pos+eval_neg))/(Fr::from(2))) + (rand*((eval_pos-eval_neg)/denom));
-
-            let inserted = val_map.insert(next_level_idx, next_level_val); 
-            match inserted {
-                Some(s) => {
-                    // todo!()
-                    assert_eq!(s, next_level_val);
-                },
-                None => (),
-            };
-            
-
-            if i>0 {
-                assert_eq!(level_evals[i-1].get(&pos_idx).unwrap(), &eval_pos);
-            }
+    let mut final_evaluation_degree_correct = true;
+    if final_evalutaion_degree == 0 {
+        for i in 1..final_evaluations.len(){
+            final_evaluation_degree_correct = final_evaluations[i] == final_evaluations[i-1];
         }
-        level_evals.push(val_map);
-        verify_domain_size /= 2;
-        for j in 0..queries.len() {
-            queries[j] = (queries[j])%(verify_domain_size);
-        }
-        queries.sort();
-        queries.dedup();
+    } else {
+        let eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(final_evaluations.len()).unwrap();
+        let coeffs = eval_domain.ifft(&final_evaluations);
+        let final_eval_poly_degree = coeffs.len()-1;
+        final_evaluation_degree_correct = final_eval_poly_degree as u32 == fri_config.last_polynomial_degree;
     }
+    assert!(final_evaluation_degree_correct);
 
+    let original_domain_size = fri_config.blow_up_factor * (degree+1);
+    let levels_to_iterate = (((degree+1)/(final_evalutaion_degree+1)) as f32).log2() as usize;
+
+    println!("original domain size {:?}", original_domain_size);
+    println!("levels to iterate {:?}", levels_to_iterate);
+
+    println!("*** Verifying evaluation proof and consistency checks for each query ***");
+    for i in 0..fri_config.num_query {
+        println!("Starting to verify query -- {:?}", i+1);
+        let mut domain_size_current = original_domain_size as usize;
+        let q_init = queries[i as usize];
+        let mut next_level_value: F = F::one();
+        for l in 0..levels_to_iterate {
+            let q = q_init%domain_size_current;
+            println!("Verifying query {:?} at level {:?}",q,l);
+            let pos_idx = q;
+            let neg_idx = (q + (domain_size_current/2)) % domain_size_current;
+            // verify positive point
+            let pos_eval_proof = eval_proofs[l].get(&pos_idx).unwrap();
+            if l !=0 {
+                // check prev round to current round consistency
+                assert_eq!(next_level_value, pos_eval_proof.evaluation, "Consistency check failed for query {:?} between levels {:?} and {:?}", q, l-1, l);
+            }
+            
+            assert!(merkle_path_verify::<F,H>(&level_roots[l], pos_idx, pos_eval_proof.evaluation, domain_size_current, &pos_eval_proof.merkle_proof));
+
+            // verify negative point
+            let neg_eval_proof = eval_proofs[l].get(&neg_idx).unwrap();
+            assert!(merkle_path_verify::<F,H>(&level_roots[l], neg_idx, neg_eval_proof.evaluation, domain_size_current, &neg_eval_proof.merkle_proof));
+
+            let eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
+            let denom = eval_domain_verifier.element(pos_idx) * F::from(2);
+            next_level_value = 
+                (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (fri_proof.verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
+            domain_size_current/=2;
+        }
+        // match value from evaluations
+        let q_final = queries[i as usize]%domain_size_current;
+        assert_eq!(final_evaluations[q_final], next_level_value);
+    }
+    true
 }
+
 
 #[cfg(test)]
 mod test {
-
     use super::*;
-
+    use ark_bn254::Fr;
+    use crate::hasher::Sha256_;
     #[test]
-    pub fn test_ (){
+    pub fn test_(){
         //The coefficient of x^i is stored at location i in coeffs.
         let coeff_u64: Vec<i64> = vec![19, 56, 34, 48,43,37, 10, 10];
         let coeffs: Vec<Fr> = coeff_u64.iter().map(|x| Fr::from(x.clone())).collect();
 
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
         let poly: DensePolynomial<Fr> = DenseUVPolynomial::from_coefficients_vec(coeffs);
-        println!("polynomial {:?}", poly);
-        low_degree_extension_proof(poly);
+
+        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 };
+
+        let fri_proof = generate_fri_proof::<Fr, Sha256_<Fr>>(poly, fri_config.clone());
+        
+        assert!(verify_fri_proof(fri_config, 7, fri_proof))
     }
 }
