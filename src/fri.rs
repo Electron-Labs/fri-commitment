@@ -10,6 +10,7 @@ use ark_std::ops::{Mul, Add};
 
 use crate::hasher::Hasher_;
 use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
+use crate::goldilocks_field::Fq;
 
 const T_QUERIES: [usize; 4] = [1,2,5,7];
 
@@ -243,14 +244,14 @@ mod test {
     pub fn test_(){
         //The coefficient of x^i is stored at location i in coeffs.
         let coeff_u64: Vec<i64> = vec![19, 56, 34, 48,43,37, 10, 10];
-        let coeffs: Vec<Fr> = coeff_u64.iter().map(|x| Fr::from(x.clone())).collect();
+        let coeffs: Vec<Fq> = coeff_u64.iter().map(|x| Fq::from(x.clone())).collect();
 
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
-        let poly: DensePolynomial<Fr> = DenseUVPolynomial::from_coefficients_vec(coeffs);
+        let poly: DensePolynomial<Fq> = DenseUVPolynomial::from_coefficients_vec(coeffs);
 
         let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 };
 
-        let fri_proof = generate_fri_proof::<Fr, Sha256_<Fr>>(poly, fri_config.clone());
+        let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         
         assert!(verify_fri_proof(fri_config, 7, fri_proof))
     }
