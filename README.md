@@ -4,7 +4,7 @@ Contains in progress rust implementation of FRI protocol.
 
 - [x] FRI proof generation 
 - [x] FRI LDE Verification
-- [ ] Fiat Shamir
+- [x] Fiat Shamir
 - [x] Goldilocks Field
 - [ ] Poseidon Hash
 - [ ] Merkle Tree with generic Hasher
