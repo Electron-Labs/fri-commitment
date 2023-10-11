@@ -7,12 +7,14 @@ use ark_poly::{polynomial::univariate::DensePolynomial, EvaluationDomain, Polyno
 use ark_poly::GeneralEvaluationDomain;
 use ark_poly::DenseUVPolynomial;
 use ark_std::ops::{Mul, Add};
+use merlin::Transcript;
 
+use crate::fiat_shamir::TranscriptProtocol;
 use crate::hasher::Hasher_;
 use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
 use crate::goldilocks_field::Fq;
 
-const T_QUERIES: [usize; 4] = [1,2,5,7];
+// const T_QUERIES: [usize; 4] = [1,2,5,7];
 
 #[derive(Clone)]
 pub struct FriConfig {
@@ -33,19 +35,20 @@ pub struct FRIProof<F: PrimeField, H:Hasher_<F>> {
     final_evaluations: Vec<F>,
     query_eval_proofs: Vec<HashMap<usize, QueryEvalProofs<F,H>>>, // len -> number of rounds
     level_roots: Vec<[u8; 32]>,
-    verifier_randoms: Vec<F>,
+    // verifier_randoms: Vec<F>,
     _h: PhantomData<H>
 }
 
 pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
  -> FRIProof<F, H> {
-    let mut rng = ark_std::test_rng();
+    // let mut rng = ark_std::test_rng();
+    let mut transcript = Transcript::new(b"new transcript");
 
     let coefficients_length = polynomial.coeffs.len();
 
     let blow_up = fri_config.blow_up_factor;
 
-    let queries: Vec<usize> = T_QUERIES.clone().into();
+    // let queries: Vec<usize> = T_QUERIES.clone().into();
 
     // Store merkle roots corresponding to each level
     let mut merkle_roots: Vec<[u8; 32]> = Vec::new();
@@ -54,7 +57,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
     let mut merkle_objs: Vec<Merkle<F, H>> = Vec::new();
 
     // Store all the randomness generated on verifier behalf
-    let mut verifier_rands: Vec<F> = Vec::new();
+    // let mut verifier_rands: Vec<F> = Vec::new();
 
     // Keeps track of current polynomial on each step of splitting and mixing
     let mut current_polynomial = polynomial.clone();
@@ -100,6 +103,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
 
         let merkle = Merkle::<F, H>::new(&evaluations);
         merkle_roots.push(merkle.root());
+        transcript.observe_element(b"merkle_root", &F::from_le_bytes_mod_order(&merkle.root()));
         merkle_objs.push(merkle);
 
         let mut even_coeffs: Vec<F> = Vec::new();
@@ -115,20 +119,29 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         let odd_poly: DensePolynomial<F> = DensePolynomial::from_coefficients_vec(odd_coeffs);
 
         //[TODO] replace later by Fiat-Shamir
-        let verifier_rand = F::rand(&mut rng);
-        verifier_rands.push(verifier_rand);
+        // let verifier_rand = F::rand(&mut rng);
+        // verifier_rands.push(verifier_rand);
+        let verifier_rand: F = transcript.get_challenge(b"alpha");
         let mixed_poly = even_ploy.add(odd_poly.mul(verifier_rand));
 
         current_polynomial = mixed_poly;
     }
+    transcript.observe_elements(b"final evals", &final_level_evaluations);
 
     // Iterate over each query
     println!("--- Iterating through FRI queries from verifier ---");
+    let queries = <Transcript as TranscriptProtocol<F>>::get_challenge_indices(
+        &mut transcript,
+        b"challenge indices",
+        fri_config.num_query as usize
+    );
     println!("Queries : {:?}", queries);
-    for i in 0..fri_config.num_query {
+    // for i in 0..fri_config.num_query {
+    for q_start in queries {
         let mut domain_size_current = original_domain;
         // [TODO] Query should be from fiat shamir
-        let q_init = queries[i as usize];
+        // let q_init = queries[i as usize];
+        let q_init = (q_start as usize)%(original_domain/2);
         for l in 0..num_levels {
             let q = q_init%domain_size_current;
             println!("query -- {:?} level {:?} domain_size {:?}", q, l, domain_size_current);
@@ -160,14 +173,14 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         final_evaluations: final_level_evaluations, 
         query_eval_proofs,
         level_roots: merkle_roots,
-        verifier_randoms :verifier_rands,
+        // verifier_randoms :verifier_rands,
         _h: PhantomData,
     }
  }
 
 pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
     println!("--- Verifying FRI LDE check for degree {:?} ---", degree);
-    let queries: Vec<usize> = T_QUERIES.clone().into();
+    // let queries: Vec<usize> = T_QUERIES.clone().into();
 
     let final_evaluations = fri_proof.final_evaluations;
 
@@ -175,6 +188,22 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
 
     let eval_proofs = fri_proof.query_eval_proofs;
     let level_roots = fri_proof.level_roots;
+
+    let mut transcript = Transcript::new(b"new transcript");
+
+    let mut verifier_randoms = vec![];
+    for root in level_roots.iter() {
+        transcript.observe_element(b"merkle_root", &F::from_le_bytes_mod_order(root));
+        let verifier_rand: F = transcript.get_challenge(b"alpha");
+        verifier_randoms.push(verifier_rand);
+    }
+
+    transcript.observe_elements(b"final evals", &final_evaluations);
+    let queries = <Transcript as TranscriptProtocol<F>>::get_challenge_indices(
+        &mut transcript,
+        b"challenge indices",
+        fri_config.num_query as usize
+    );
 
     assert_eq!(final_evaluations.len() as u32, fri_config.blow_up_factor*(fri_config.last_polynomial_degree+1));
     
@@ -198,10 +227,13 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     println!("levels to iterate {:?}", levels_to_iterate);
 
     println!("*** Verifying evaluation proof and consistency checks for each query ***");
-    for i in 0..fri_config.num_query {
-        println!("Starting to verify query -- {:?}", i+1);
+    // for i in 0..fri_config.num_query {
+    for q_start in queries {
+        // println!("Starting to verify query -- {:?}", i+1);
+        println!("Starting to verify query -- {:?}", q_start);
         let mut domain_size_current = original_domain_size as usize;
-        let q_init = queries[i as usize];
+        // let q_init = queries[i as usize];
+        let q_init = (q_start as usize)%(domain_size_current/2);
         let mut next_level_value: F = F::one();
         for l in 0..levels_to_iterate {
             let q = q_init%domain_size_current;
@@ -224,11 +256,13 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
             let eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
             let denom = eval_domain_verifier.element(pos_idx) * F::from(2);
             next_level_value = 
-                (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (fri_proof.verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
+                // (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (fri_proof.verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
+                (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
             domain_size_current/=2;
         }
         // match value from evaluations
-        let q_final = queries[i as usize]%domain_size_current;
+        // let q_final = queries[i as usize]%domain_size_current;
+        let q_final = (q_start as usize)%(domain_size_current);
         assert_eq!(final_evaluations[q_final], next_level_value);
     }
     true
@@ -253,6 +287,6 @@ mod test {
 
         let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         
-        assert!(verify_fri_proof(fri_config, 7, fri_proof))
+        assert!(verify_fri_proof(fri_config, (coeff_u64.len()-1) as u32, fri_proof))
     }
 }
