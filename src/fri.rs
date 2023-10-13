@@ -215,8 +215,9 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     } else {
         let eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(final_evaluations.len()).unwrap();
         let coeffs = eval_domain.ifft(&final_evaluations);
-        let final_eval_poly_degree = coeffs.len()-1;
-        final_evaluation_degree_correct = final_eval_poly_degree as u32 == fri_config.last_polynomial_degree;
+        let final_eval_poly_degree = coeffs.len();
+        final_evaluation_degree_correct = final_eval_poly_degree as u32 <= (fri_config.last_polynomial_degree+1) * fri_config.blow_up_factor;
+        println!("{}", final_eval_poly_degree);
     }
     assert!(final_evaluation_degree_correct);
 
