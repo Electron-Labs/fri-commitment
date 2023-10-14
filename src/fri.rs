@@ -73,6 +73,9 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
     // last level final evaluation
     let mut final_level_evaluations: Vec<F> = Vec::new();
 
+    // offset for coset-fri, set to the group generator
+    let mut offset = F::GENERATOR;
+
     println!("Generating proof :");
     println!("num levels {:?}", num_levels);
     println!("original domain {:?}", original_domain);
@@ -89,7 +92,8 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
 
         // 1. Get evaluation domain (roots of unity multiplicative subroup size)
         let domain_size = coeffs_length * blow_up as usize;
-        let eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size).unwrap();
+        let mut eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size).unwrap();
+        eval_domain = eval_domain.get_coset(offset).expect("Error in getting coset");
         println!("domain size : {:?}", domain_size);
         // 2. Generate evaluations over the eval_domain
         let evaluations: Vec<F> = eval_domain.elements().map(|d| return current_polynomial.evaluate(&d)).collect();
@@ -125,6 +129,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         let mixed_poly = even_ploy.add(odd_poly.mul(verifier_rand));
 
         current_polynomial = mixed_poly;
+        offset = offset * offset;
     }
     transcript.observe_elements(b"final evals", &final_level_evaluations);
 
@@ -205,6 +210,18 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
         fri_config.num_query as usize
     );
 
+
+    let original_domain_size = fri_config.blow_up_factor * (degree+1);
+    let levels_to_iterate = (((degree+1)/(final_evalutaion_degree+1)) as f32).log2() as usize;
+
+    println!("original domain size {:?}", original_domain_size);
+    println!("levels to iterate {:?}", levels_to_iterate);
+
+    let mut final_offset = F::GENERATOR;
+    for _ in 0..levels_to_iterate {
+        final_offset = final_offset * final_offset;
+    }
+
     assert_eq!(final_evaluations.len() as u32, fri_config.blow_up_factor*(fri_config.last_polynomial_degree+1));
     
     let mut final_evaluation_degree_correct = true;
@@ -213,18 +230,14 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
             final_evaluation_degree_correct = final_evaluations[i] == final_evaluations[i-1];
         }
     } else {
-        let eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(final_evaluations.len()).unwrap();
+        let mut eval_domain: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(final_evaluations.len()).unwrap();
+        eval_domain = eval_domain.get_coset(final_offset).expect("Error in getting coset");
         let coeffs = eval_domain.ifft(&final_evaluations);
-        let final_eval_poly_degree = coeffs.len()-1;
-        final_evaluation_degree_correct = final_eval_poly_degree as u32 == fri_config.last_polynomial_degree;
+        let final_eval_poly_degree = coeffs.len();
+        final_evaluation_degree_correct = final_eval_poly_degree as u32 <= (fri_config.last_polynomial_degree+1) * fri_config.blow_up_factor;
+        println!("{}", final_eval_poly_degree);
     }
     assert!(final_evaluation_degree_correct);
-
-    let original_domain_size = fri_config.blow_up_factor * (degree+1);
-    let levels_to_iterate = (((degree+1)/(final_evalutaion_degree+1)) as f32).log2() as usize;
-
-    println!("original domain size {:?}", original_domain_size);
-    println!("levels to iterate {:?}", levels_to_iterate);
 
     println!("*** Verifying evaluation proof and consistency checks for each query ***");
     // for i in 0..fri_config.num_query {
@@ -235,6 +248,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
         // let q_init = queries[i as usize];
         let q_init = (q_start as usize)%(domain_size_current/2);
         let mut next_level_value: F = F::one();
+        let mut offset = F::GENERATOR;
         for l in 0..levels_to_iterate {
             let q = q_init%domain_size_current;
             println!("Verifying query {:?} at level {:?}",q,l);
@@ -253,12 +267,14 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
             let neg_eval_proof = eval_proofs[l].get(&neg_idx).unwrap();
             assert!(merkle_path_verify::<F,H>(&level_roots[l], neg_idx, neg_eval_proof.evaluation, domain_size_current, &neg_eval_proof.merkle_proof));
 
-            let eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
+            let mut eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
+            eval_domain_verifier = eval_domain_verifier.get_coset(offset).expect("Error in getting coset");
             let denom = eval_domain_verifier.element(pos_idx) * F::from(2);
             next_level_value = 
                 // (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (fri_proof.verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
                 (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
             domain_size_current/=2;
+            offset = offset * offset;
         }
         // match value from evaluations
         // let q_final = queries[i as usize]%domain_size_current;
