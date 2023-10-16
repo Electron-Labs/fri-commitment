@@ -3,19 +3,22 @@ use ark_ff::PrimeField;
 use crate::hasher::Hasher_;
 
 // TODO : generalise for different kind of leaves (hash_n_or_noop (< HASH_OUT size leaves, hash_n_to_m size leaves)
+#[derive(Clone)]
 pub struct MerkleTree<F: PrimeField, H: Hasher_<F>> {
-    pub root: Option<H::Hash>,
+    pub root_cap: Option<Vec<H::Hash>>,
     levels: Vec<Vec<H::Hash>>, // Precompute hash values at each level
     pub leaves: Vec<F>,
     depth: u32,
+    merkle_cap_bits: u32, // bits
 }
 
 #[derive(Debug)]
 pub struct MerkleProof<F: PrimeField, H: Hasher_<F>> {
     leaf: F,
     leaf_idx: usize,
+    // merkle_cap_bits: u32,
     proof: Vec<H::Hash>, // [L1, L2, ...] one neighbour corresponding to each level
-    root: H::Hash, // indexes of each node to determine left or right direction
+    root_cap: Vec<H::Hash>, // indexes of each node to determine left or right direction
 }
 
 pub fn merkle_path_verify<F: PrimeField, H: Hasher_<F>>(proof: &MerkleProof<F, H>) -> bool {
@@ -37,17 +40,18 @@ pub fn merkle_path_verify<F: PrimeField, H: Hasher_<F>>(proof: &MerkleProof<F, H
             curr_idx = (curr_idx-1)/2;
         }
     }
-    computed_val == proof.root
+    computed_val == proof.root_cap[curr_idx]
 }
 
 impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
     // Start a new merkle tree
-    pub fn new() -> Self {
+    pub fn new(merkle_cap_bits: u32) -> Self {
         Self {
-                root: None,
+                root_cap: None,
                 levels: Vec::new(),
                 leaves: Vec::new(),
                 depth: 0,
+                merkle_cap_bits 
             }
     }
 
@@ -55,7 +59,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
         self.leaves.extend(leaves);
     }
 
-    pub fn compute_tree(&mut self) -> H::Hash {
+    pub fn compute_tree(&mut self) -> Vec<H::Hash> {
         // Extend len to power of two
         let new_len = self.leaves.len().next_power_of_two();
         self.leaves.resize(new_len, F::ZERO);
@@ -69,7 +73,11 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
         let first_level = self.leaves.iter().map(|l| H::hash(l.clone())).collect();
         levels.push(first_level);
 
-        for i in 0..num_levels {
+        let last_level = num_levels-self.merkle_cap_bits as usize;
+
+        assert!(last_level >= 1);
+
+        for i in 0..last_level {
             let current_layer = levels[i].clone();
             let next_layer = current_layer.chunks(2).map(|ips|{// [TODO] change 2 to arity
                 H::hash_two_to_one(ips[0], ips[1])
@@ -77,9 +85,9 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
             levels.push(next_layer);
         }
         self.levels = levels;
-        assert_eq!(self.levels[num_levels].len(), 1); // Top most level will always have one value [TODO] replace with CAP
-        self.root = Some(self.levels[num_levels][0]);
-        self.levels[num_levels][0]
+        assert_eq!(self.levels[last_level].len(), (2 as usize).pow(self.merkle_cap_bits as u32)); // Top most level will always have one value [TODO] replace with CAP
+        self.root_cap = Some(self.levels[last_level].clone());
+        self.levels[last_level].clone()
     }
 
     pub fn proof(&self, idx: usize) -> MerkleProof<F, H>{
@@ -87,7 +95,8 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
         // proof: Vec<F>, // [L1, L2, ...] one neighbour corresponding to each level // length will be depth
         let mut proof: Vec<H::Hash> = Vec::new();
         let mut curr_idx = idx;
-        for i in 0..self.depth {
+        let last_level = self.depth-self.merkle_cap_bits as u32;
+        for i in 0..last_level {
             if curr_idx%2 == 0 {
                 // we have l node
                 let neighbour = self.levels[i as usize][curr_idx+1];
@@ -104,7 +113,8 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
             leaf: leaf_val,
             leaf_idx: idx,
             proof,
-            root: self.root.unwrap(),
+            root_cap: self.root_cap.clone().unwrap(),
+            // merkle_cap_bits: self.merkle_cap_bits
         }
 
     }
@@ -117,16 +127,18 @@ mod tests {
     use crate::{goldilocks_field::Fq, hasher::Sha256_};
     #[test]
     fn test_merkle() {
-        let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new();
+        let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new(2);
 
-        let num_leaves = 10;
+        let num_leaves = 16;
         let leaves: Vec<Fq> = (0..num_leaves).map(|i| Fq::from(i as u32)).collect();
 
         tree.insert(&leaves);
 
         let root = tree.compute_tree();
 
-        let merkle_proof = tree.proof(2);
+        println!("root {:?}", root);
+
+        let merkle_proof = tree.proof(1);
 
         let verify = merkle_path_verify(&merkle_proof);
         println!("verify : {:?}", verify);
