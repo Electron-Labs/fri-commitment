@@ -23,6 +23,7 @@ pub struct FriConfig {
     num_query: u32,
     blow_up_factor: u32,
     last_polynomial_degree: u32,
+    merkle_cap_bits: u32,
 }
 
 #[derive(Debug)]
@@ -35,7 +36,7 @@ pub struct QueryEvalProofs<F: PrimeField,H: Hasher_<F>> {
 pub struct FRIProof<F: PrimeField, H:Hasher_<F>> {
     final_evaluations: Vec<F>,
     query_eval_proofs: Vec<HashMap<usize, QueryEvalProofs<F,H>>>, // len -> number of rounds
-    level_roots: Vec<H::Hash>,
+    level_roots: Vec<Vec<H::Hash>>,
     _h: PhantomData<H>
 }
 
@@ -51,7 +52,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
     // let queries: Vec<usize> = T_QUERIES.clone().into();
 
     // Store merkle roots corresponding to each level
-    let mut merkle_roots: Vec<H::Hash> = Vec::new();
+    let mut merkle_roots: Vec<Vec<H::Hash>> = Vec::new();
 
     // Store merkle objects corresponding to each level (used query by query to generate eval proof)
     let mut merkle_objs: Vec<merkle::MerkleTree<F, H>> = Vec::new();
@@ -106,12 +107,13 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         }
 
         // let merkle = Merkle::<F, H>::new(&evaluations);
-        let mut merkle = merkle::MerkleTree::<F,H>::new();
+        let mut merkle = merkle::MerkleTree::<F,H>::new(fri_config.merkle_cap_bits);
         merkle.insert(&evaluations);
 
         merkle_roots.push(merkle.compute_tree());
         // transcript.observe_element(b"merkle_root", &F::from_le_bytes_mod_order(&merkle.root()));
-        transcript.observe_element(b"merkle_root", &H::hash_as_field(merkle.root.unwrap()));
+        let merkle_root_cap_field:Vec<F> = merkle.root_cap.clone().unwrap().iter().map(|r| H::hash_as_field(r.clone())).collect();
+        transcript.observe_elements(b"merkle_root", &merkle_root_cap_field);
         merkle_objs.push(merkle);
 
         let mut even_coeffs: Vec<F> = Vec::new();
@@ -200,7 +202,8 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
 
     let mut verifier_randoms = vec![];
     for root in level_roots.iter() {
-        transcript.observe_element(b"merkle_root", &H::hash_as_field(root.clone()));
+        let merkle_root_cap_field:Vec<F> = root.iter().map(|r| H::hash_as_field(r.clone())).collect();
+        transcript.observe_elements(b"merkle_root", &merkle_root_cap_field);
         let verifier_rand: F = transcript.get_challenge(b"alpha");
         verifier_randoms.push(verifier_rand);
     }
@@ -303,7 +306,7 @@ mod test {
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
         let poly: DensePolynomial<Fq> = DenseUVPolynomial::from_coefficients_vec(coeffs);
 
-        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 };
+        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 1};
 
         let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         
