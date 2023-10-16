@@ -11,8 +11,10 @@ use merlin::Transcript;
 
 use crate::fiat_shamir::TranscriptProtocol;
 use crate::hasher::Hasher_;
-use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
+// use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
 use crate::goldilocks_field::Fq;
+
+use crate::merkle::{self, merkle_path_verify};
 
 // const T_QUERIES: [usize; 4] = [1,2,5,7];
 
@@ -25,17 +27,15 @@ pub struct FriConfig {
 
 #[derive(Debug)]
 pub struct QueryEvalProofs<F: PrimeField,H: Hasher_<F>> {
-    merkle_proof: MerkleProof_<[u8; 32]>,
+    merkle_proof: merkle::MerkleProof<F, H>,
     evaluation: F,
-    _h: PhantomData<H>
 }
 
 #[derive(Debug)]
 pub struct FRIProof<F: PrimeField, H:Hasher_<F>> {
     final_evaluations: Vec<F>,
     query_eval_proofs: Vec<HashMap<usize, QueryEvalProofs<F,H>>>, // len -> number of rounds
-    level_roots: Vec<[u8; 32]>,
-    // verifier_randoms: Vec<F>,
+    level_roots: Vec<H::Hash>,
     _h: PhantomData<H>
 }
 
@@ -51,10 +51,10 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
     // let queries: Vec<usize> = T_QUERIES.clone().into();
 
     // Store merkle roots corresponding to each level
-    let mut merkle_roots: Vec<[u8; 32]> = Vec::new();
+    let mut merkle_roots: Vec<H::Hash> = Vec::new();
 
     // Store merkle objects corresponding to each level (used query by query to generate eval proof)
-    let mut merkle_objs: Vec<Merkle<F, H>> = Vec::new();
+    let mut merkle_objs: Vec<merkle::MerkleTree<F, H>> = Vec::new();
 
     // Store all the randomness generated on verifier behalf
     // let mut verifier_rands: Vec<F> = Vec::new();
@@ -105,9 +105,13 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
             break;
         }
 
-        let merkle = Merkle::<F, H>::new(&evaluations);
-        merkle_roots.push(merkle.root());
-        transcript.observe_element(b"merkle_root", &F::from_le_bytes_mod_order(&merkle.root()));
+        // let merkle = Merkle::<F, H>::new(&evaluations);
+        let mut merkle = merkle::MerkleTree::<F,H>::new();
+        merkle.insert(&evaluations);
+
+        merkle_roots.push(merkle.compute_tree());
+        // transcript.observe_element(b"merkle_root", &F::from_le_bytes_mod_order(&merkle.root()));
+        transcript.observe_element(b"merkle_root", &H::hash_as_field(merkle.root.unwrap()));
         merkle_objs.push(merkle);
 
         let mut even_coeffs: Vec<F> = Vec::new();
@@ -157,8 +161,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
                     pos_idx,
                     QueryEvalProofs::<F,H>{
                         merkle_proof: merkle_objs[l].proof(pos_idx),
-                        evaluation: merkle_objs[l].get_leaf(pos_idx),
-                        _h: PhantomData,
+                        evaluation: merkle_objs[l].leaves[pos_idx]//(pos_idx),
                     });
             }
             if !query_eval_proofs[l].contains_key(&neg_idx) {
@@ -166,8 +169,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
                     neg_idx, 
                     QueryEvalProofs::<F,H>{
                         merkle_proof: merkle_objs[l].proof(neg_idx),
-                        evaluation: merkle_objs[l].get_leaf(neg_idx),
-                        _h: PhantomData,
+                        evaluation: merkle_objs[l].leaves[neg_idx],
                     });
             }
             domain_size_current/=2;
@@ -198,7 +200,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
 
     let mut verifier_randoms = vec![];
     for root in level_roots.iter() {
-        transcript.observe_element(b"merkle_root", &F::from_le_bytes_mod_order(root));
+        transcript.observe_element(b"merkle_root", &H::hash_as_field(root.clone()));
         let verifier_rand: F = transcript.get_challenge(b"alpha");
         verifier_randoms.push(verifier_rand);
     }
@@ -261,11 +263,13 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
                 assert_eq!(next_level_value, pos_eval_proof.evaluation, "Consistency check failed for query {:?} between levels {:?} and {:?}", q, l-1, l);
             }
             
-            assert!(merkle_path_verify::<F,H>(&level_roots[l], pos_idx, pos_eval_proof.evaluation, domain_size_current, &pos_eval_proof.merkle_proof));
+            // assert!(merkle_path_verify::<F,H>(&level_roots[l], pos_idx, pos_eval_proof.evaluation, domain_size_current, &pos_eval_proof.merkle_proof));
+            assert!(merkle_path_verify::<F,H>(&pos_eval_proof.merkle_proof));
 
             // verify negative point
             let neg_eval_proof = eval_proofs[l].get(&neg_idx).unwrap();
-            assert!(merkle_path_verify::<F,H>(&level_roots[l], neg_idx, neg_eval_proof.evaluation, domain_size_current, &neg_eval_proof.merkle_proof));
+            // assert!(merkle_path_verify::<F,H>(&level_roots[l], neg_idx, neg_eval_proof.evaluation, domain_size_current, &neg_eval_proof.merkle_proof));
+            assert!(merkle_path_verify::<F,H>(&neg_eval_proof.merkle_proof));
 
             let mut eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
             eval_domain_verifier = eval_domain_verifier.get_coset(offset).expect("Error in getting coset");
