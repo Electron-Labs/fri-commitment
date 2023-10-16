@@ -7,8 +7,8 @@ Contains in progress rust implementation of FRI protocol.
 - [x] Fiat Shamir
 - [x] Goldilocks Field
 - [ ] Poseidon Hash
-- [ ] Merkle Tree with generic Hasher
-- [ ] Cosets
+- [x] Merkle Tree with generic Hasher
+- [x] Cosets
 - [ ] DEEP-FRI additions
 - [ ] Merkle cap to fri config
 - [ ] Proof of work for grinding
