@@ -16,7 +16,7 @@ pub struct MerkleTree<F: PrimeField, H: Hasher_<F>> {
 pub struct MerkleProof<F: PrimeField, H: Hasher_<F>> {
     leaf: F,
     leaf_idx: usize,
-    merkle_cap_bits: u32,
+    // merkle_cap_bits: u32,
     proof: Vec<H::Hash>, // [L1, L2, ...] one neighbour corresponding to each level
     root_cap: Vec<H::Hash>, // indexes of each node to determine left or right direction
 }
@@ -114,7 +114,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
             leaf_idx: idx,
             proof,
             root_cap: self.root_cap.clone().unwrap(),
-            merkle_cap_bits: self.merkle_cap_bits
+            // merkle_cap_bits: self.merkle_cap_bits
         }
 
     }
@@ -129,7 +129,7 @@ mod tests {
     fn test_merkle() {
         let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new(2);
 
-        let num_leaves = 10;
+        let num_leaves = 16;
         let leaves: Vec<Fq> = (0..num_leaves).map(|i| Fq::from(i as u32)).collect();
 
         tree.insert(&leaves);
