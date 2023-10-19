@@ -13,5 +13,5 @@ Contains in progress rust implementation of FRI protocol.
 - [x] Merkle cap to fri config
 - [ ] Proof of work for grinding
 - [ ] Batched FRI
-- [ ] Variable step reduction (-arity bits reduction)
+- [x] Variable step reduction (-arity bits reduction)
 - [ ] Security Bits / proof size benchmarks 
