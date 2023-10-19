@@ -9,7 +9,7 @@ pub struct FriConfig {
     pub num_query: u32,
     pub blow_up_factor: u32,
     pub last_polynomial_degree: u32,
-    pub merkle_cap_bits: u32,
+    pub merkle_cap_bits: u32, // merkle proofs roots level
     pub level_reductions_bits: Vec<u32>, // array of bits
 }
 

@@ -1,5 +1,3 @@
-
-
 #[cfg(test)]
 mod test {
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
