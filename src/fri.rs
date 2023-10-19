@@ -12,7 +12,7 @@ use merlin::Transcript;
 use crate::fiat_shamir::TranscriptProtocol;
 use crate::hasher::Hasher_;
 // use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
-use crate::goldilocks_field::Fq;
+use crate::fields::goldilocks_field::Fq;
 
 use crate::merkle::{self, merkle_path_verify};
 

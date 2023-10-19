@@ -125,7 +125,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{goldilocks_field::Fq, hasher::Sha256_};
+    use crate::{fields::goldilocks_field::Fq, hasher::Sha256_};
     #[test]
     fn test_merkle() {
         let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new(2);

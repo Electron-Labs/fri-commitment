@@ -43,7 +43,7 @@ impl<F: PrimeField> TranscriptProtocol<F> for Transcript {
 
 #[cfg(test)]
 mod tests {
-    use crate::goldilocks_field::Fq;
+    use crate::fields::goldilocks_field::Fq;
     use super::TranscriptProtocol;
     use merlin::Transcript;
 
