@@ -1,8 +1,15 @@
-use std::{marker::PhantomData, fmt::Debug};
+use std::{marker::PhantomData, fmt::Debug, ops::{IndexMut, Index}};
 
 use ark_ff::PrimeField;
 use rs_merkle::{algorithms::Sha256, Hasher};
 
+pub trait Permutation<F: Clone + Debug + Default>: Clone + Debug + Default + Index<usize, Output = F> + IndexMut<usize, Output = F> {
+    const RATE: usize;
+    const WIDTH: usize;
+
+    fn new(items: &[F]) -> Self;
+    fn permute(&mut self);
+}
 
 pub trait Hasher_<F: PrimeField> {
     type Hash: Clone + PartialEq + Debug + Copy;

@@ -1,8 +1,7 @@
 use ark_ff::PrimeField;
 use ark_poly::{GeneralEvaluationDomain, EvaluationDomain};
-use merlin::Transcript;
 
-use crate::{hashing::hasher::Hasher_, merkle_tree::merkle::merkle_path_verify, fiat_shamir::fiat_shamir::TranscriptProtocol};
+use crate::{hashing::hasher::{Hasher_, Permutation}, merkle_tree::merkle::merkle_path_verify, fiat_shamir::fiat_shamir::FiatShamir};
 
 use super::types::{FRIProof, FriConfig};
 
@@ -35,7 +34,7 @@ pub fn calcualate_next_level_value<F: PrimeField + std::convert::From<i32>>(
     next_level_val
 }
 
-pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
+pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>, P: Permutation<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
     println!("--- Verifying FRI LDE check for degree {:?} ---", degree);
 
     let final_evaluations = fri_proof.final_evaluations;
@@ -45,24 +44,20 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     let eval_proofs = fri_proof.query_eval_proofs;
     let level_roots = fri_proof.level_roots;
 
-    let mut transcript = Transcript::new(b"new transcript");
+    let mut fiat_shamir_transform: FiatShamir<F, P> = FiatShamir::new();
 
     // Extract random verifier challenges from fiat-shamir
     let mut verifier_randoms = vec![];
     for root in level_roots.iter() {
         let merkle_root_cap_field:Vec<F> = root.iter().map(|r| H::hash_as_field(r.clone())).collect();
-        transcript.observe_elements(b"merkle_root", &merkle_root_cap_field);
-        let verifier_rand: F = transcript.get_challenge(b"alpha");
+        fiat_shamir_transform.observe_elements(&merkle_root_cap_field);
+        let verifier_rand: F = fiat_shamir_transform.get_challenge();
         verifier_randoms.push(verifier_rand);
     }
 
     // Extract queries from fiat-shamir 
-    transcript.observe_elements(b"final evals", &final_evaluations);
-    let queries = <Transcript as TranscriptProtocol<F>>::get_challenge_indices(
-        &mut transcript,
-        b"challenge indices",
-        fri_config.num_query as usize
-    );
+    fiat_shamir_transform.observe_elements(&final_evaluations);
+    let queries = fiat_shamir_transform.get_challenge_indices(fri_config.num_query as usize);
 
 
     let original_domain_size = fri_config.blow_up_factor * (degree+1);

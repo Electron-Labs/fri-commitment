@@ -2,9 +2,8 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use ark_ff::PrimeField;
 use ark_poly::{univariate::DensePolynomial, GeneralEvaluationDomain, EvaluationDomain, DenseUVPolynomial, Polynomial};
-use merlin::Transcript;
 
-use crate::{hashing::hasher::Hasher_, merkle_tree::merkle, fri::utils::validate_fri_config, fiat_shamir::fiat_shamir::TranscriptProtocol};
+use crate::{hashing::hasher::{Hasher_, Permutation}, merkle_tree::merkle, fri::utils::validate_fri_config, fiat_shamir::fiat_shamir::FiatShamir};
 
 use super::types::{FRIProof, FriConfig, QueryEvalProofs};
 
@@ -42,7 +41,7 @@ pub fn fold_polynomial<F:PrimeField>(polynomial: DensePolynomial<F>, rand: F, re
 }
 
 // Generate query proofs for a corresponding query at each FRI level
-pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher_<F>>(queries: Vec<u32>, original_domain: usize, reduction_bits: Vec<u32>, merkle_objs: &Vec<merkle::MerkleTree<F, H>>, query_eval_proofs: &mut Vec<HashMap<usize, QueryEvalProofs<F, H>>>) {
+pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher_<F>>(queries: Vec<u64>, original_domain: usize, reduction_bits: Vec<u32>, merkle_objs: &Vec<merkle::MerkleTree<F, H>>, query_eval_proofs: &mut Vec<HashMap<usize, QueryEvalProofs<F, H>>>) {
     for q_start in queries {
         let mut domain_size_current = original_domain;
         // We translate each query to first half of its domain
@@ -62,9 +61,9 @@ pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher_<F>>(queries: Vec<u32
     }
 }
 
-pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
+pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>, P: Permutation<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
  -> FRIProof<F, H> {
-    let mut transcript = Transcript::new(b"new transcript");
+    let mut fiat_shamir_transform: FiatShamir<F, P> = FiatShamir::new();
 
     let coefficients_length = polynomial.coeffs.len();
 
@@ -147,25 +146,21 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         merkle_roots.push(merkle.compute_tree());
         
         let merkle_root_cap_field:Vec<F> = merkle.root_cap.clone().unwrap().iter().map(|r| H::hash_as_field(r.clone())).collect();
-        transcript.observe_elements(b"merkle_root", &merkle_root_cap_field);
+        fiat_shamir_transform.observe_elements(&merkle_root_cap_field);
         merkle_objs.push(merkle);
 
-        let verifier_rand: F = transcript.get_challenge(b"alpha");
+        let verifier_rand: F = fiat_shamir_transform.get_challenge();
 
         current_polynomial = fold_polynomial(current_polynomial, verifier_rand, reduction);
 
         offset = offset.pow([reduction as u64]);
     }
 
-    transcript.observe_elements(b"final evals", &final_level_evaluations);
+    fiat_shamir_transform.observe_elements(&final_level_evaluations);
 
     // Iterate over each query
     println!("--- Iterating through FRI queries from verifier ---");
-    let queries = <Transcript as TranscriptProtocol<F>>::get_challenge_indices(
-        &mut transcript,
-        b"challenge indices",
-        fri_config.num_query as usize
-    );
+    let queries = fiat_shamir_transform.get_challenge_indices(fri_config.num_query as usize);
     println!("Queries : {:?}", queries);
     
     // Generate query proofs
