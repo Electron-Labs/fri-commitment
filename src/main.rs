@@ -1,9 +1,9 @@
 mod fiat_shamir;
-mod fri;
 mod pcs;
-mod hasher;
-mod merkle;
+mod hashing;
+mod merkle_tree;
 mod fields;
+mod fri;
 fn main() {
     println!("Hello, world!");
 }

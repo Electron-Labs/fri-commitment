@@ -9,12 +9,12 @@ use ark_poly::DenseUVPolynomial;
 use ark_std::ops::{Mul, Add};
 use merlin::Transcript;
 
-use crate::fiat_shamir::TranscriptProtocol;
-use crate::hasher::Hasher_;
+use crate::fiat_shamir::fiat_shamir::TranscriptProtocol;
+use crate::hashing::hasher::Hasher_;
 // use crate::merkle_tree::{MerkleProof_, MerkleTrait, Merkle, merkle_path_verify};
 use crate::fields::goldilocks_field::Fq;
 
-use crate::merkle::{self, merkle_path_verify};
+use crate::merkle_tree::merkle::{self, merkle_path_verify};
 
 // const T_QUERIES: [usize; 4] = [1,2,5,7];
 
@@ -439,7 +439,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
 mod test {
     use super::*;
     use ark_bn254::Fr;
-    use crate::hasher::Sha256_;
+    use crate::hashing::hasher::Sha256_;
     #[test]
     pub fn test_(){
         //The coefficient of x^i is stored at location i in coeffs.

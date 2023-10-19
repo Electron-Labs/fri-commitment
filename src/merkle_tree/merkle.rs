@@ -1,6 +1,6 @@
 use ark_ff::PrimeField;
 
-use crate::hasher::Hasher_;
+use crate::hashing::hasher::Hasher_;
 
 // TODO : generalise for different kind of leaves (hash_n_or_noop (< HASH_OUT size leaves, hash_n_to_m size leaves)
 #[derive(Clone)]
@@ -125,7 +125,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{fields::goldilocks_field::Fq, hasher::Sha256_};
+    use crate::{fields::goldilocks_field::Fq, hashing::hasher::Sha256_};
     #[test]
     fn test_merkle() {
         let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new(2);
