@@ -149,6 +149,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
     
     for q_start in queries {
         let mut domain_size_current = original_domain;
+        // We translate each query to first half of its domain
         let q_init = (q_start as usize)%(original_domain/2);
         for l in 0..num_levels {
             let q = q_init%domain_size_current;
