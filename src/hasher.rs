@@ -15,6 +15,7 @@ pub trait Hasher_<F: PrimeField> {
     fn hash_as_field(hash: Self::Hash) -> F;
 }
 
+#[derive(Clone, Debug)]
 pub struct Sha256_<F: PrimeField> {
     _f: PhantomData<F>,
 }
