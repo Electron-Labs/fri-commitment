@@ -1,21 +1,21 @@
 use ark_ff::PrimeField;
 
-use crate::hasher::Hasher_;
+use crate::hashing::hasher::Hasher_;
 
 // TODO : generalise for different kind of leaves (hash_n_or_noop (< HASH_OUT size leaves, hash_n_to_m size leaves)
 #[derive(Clone)]
 pub struct MerkleTree<F: PrimeField, H: Hasher_<F>> {
     pub root_cap: Option<Vec<H::Hash>>,
     levels: Vec<Vec<H::Hash>>, // Precompute hash values at each level
-    pub leaves: Vec<F>,
+    pub leaves: Vec<Vec<F>>,
     depth: u32,
     merkle_cap_bits: u32, // bits
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MerkleProof<F: PrimeField, H: Hasher_<F>> {
-    leaf: F,
-    leaf_idx: usize,
+    pub leaf: Vec<F>,
+    pub leaf_idx: usize,
     // merkle_cap_bits: u32,
     proof: Vec<H::Hash>, // [L1, L2, ...] one neighbour corresponding to each level
     root_cap: Vec<H::Hash>, // indexes of each node to determine left or right direction
@@ -25,7 +25,8 @@ pub fn merkle_path_verify<F: PrimeField, H: Hasher_<F>>(proof: &MerkleProof<F, H
     let depth = proof.proof.len();
 
     let mut curr_idx = proof.leaf_idx;
-    let mut computed_val = H::hash(proof.leaf);//proof.leaf;
+    // TODO Change point addition when integrate sponge hasher
+    let mut computed_val = H::hash(proof.leaf.iter().sum());//proof.leaf;
     // compute root
     for i in 0..depth {
         if curr_idx%2 == 0 {
@@ -55,14 +56,14 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
             }
     }
 
-    pub fn insert(&mut self, leaves: &[F]) {
+    pub fn insert(&mut self, leaves: Vec<Vec<F>>) {
         self.leaves.extend(leaves);
     }
 
     pub fn compute_tree(&mut self) -> Vec<H::Hash> {
         // Extend len to power of two
         let new_len = self.leaves.len().next_power_of_two();
-        self.leaves.resize(new_len, F::ZERO);
+        self.leaves.resize(new_len, vec![F::ZERO]);
 
         let num_levels = (new_len as f64).log2() as usize;
 
@@ -70,7 +71,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
 
         let mut levels: Vec<Vec<H::Hash>> = Vec::new();
 
-        let first_level = self.leaves.iter().map(|l| H::hash(l.clone())).collect();
+        let first_level = self.leaves.iter().map(|l| H::hash(l.iter().sum())).collect();
         levels.push(first_level);
 
         let last_level = num_levels-self.merkle_cap_bits as usize;
@@ -91,7 +92,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
     }
 
     pub fn proof(&self, idx: usize) -> MerkleProof<F, H>{
-        let leaf_val = self.leaves[idx];
+        let leaf_val = self.leaves[idx].clone();
         // proof: Vec<F>, // [L1, L2, ...] one neighbour corresponding to each level // length will be depth
         let mut proof: Vec<H::Hash> = Vec::new();
         let mut curr_idx = idx;
@@ -124,15 +125,18 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{goldilocks_field::Fq, hasher::Sha256_};
+    use crate::{fields::goldilocks_field::Fq, hashing::hasher::Sha256_};
     #[test]
     fn test_merkle() {
         let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new(2);
 
         let num_leaves = 16;
-        let leaves: Vec<Fq> = (0..num_leaves).map(|i| Fq::from(i as u32)).collect();
 
-        tree.insert(&leaves);
+        let leaf: Vec<Fq> = (0..4).map(|i| Fq::from(i as u32)).collect();
+
+        let leaves: Vec<Vec<Fq>> = (0..num_leaves).map(|i| leaf.iter().map(|l| l.clone()*Fq::from(i)).collect::<Vec<Fq>>()).collect();
+
+        tree.insert(leaves);
 
         let root = tree.compute_tree();
 
