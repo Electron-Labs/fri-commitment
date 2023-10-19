@@ -8,7 +8,6 @@ use super::types::{FRIProof, FriConfig};
 
 pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
     println!("--- Verifying FRI LDE check for degree {:?} ---", degree);
-    // let queries: Vec<usize> = T_QUERIES.clone().into();
 
     let final_evaluations = fri_proof.final_evaluations;
 
@@ -46,9 +45,6 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     for exp in fri_config.level_reductions_bits.clone() {
         final_offset = final_offset.pow([exp as u64]);
     }
-    // for _ in 0..levels_to_iterate {
-    //     final_offset = final_offset * final_offset;
-    // }
 
     assert_eq!(final_evaluations.len() as u32, fri_config.blow_up_factor*(fri_config.last_polynomial_degree+1));
     
@@ -68,7 +64,6 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     assert!(final_evaluation_degree_correct);
 
     println!("*** Verifying evaluation proof and consistency checks for each query ***");
-    // for i in 0..fri_config.num_query {
     for q_start in queries {
         // println!("Starting to verify query -- {:?}", i+1);
         println!("Starting to verify query -- {:?}", q_start);
@@ -104,13 +99,6 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
 
             assert!(merkle_path_verify::<F,H>(&eval_proof.merkle_proof)); 
 
-            // let evaluations = eval_proof.merkle_proof
-            // let evaluations: Vec<F> = eval_proof.merkle_proof.iter().zip(level_query_set.clone()).map(|(p, lq)| {
-            //     assert!(merkle_path_verify::<F,H>(&p)); 
-            //     assert_eq!(p.leaf_idx, lq);
-            //     p.leaf
-            // }).collect();
-
             let mut eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
             eval_domain_verifier = eval_domain_verifier.get_coset(offset).expect("Error in getting coset");
 
@@ -141,32 +129,9 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
             interpolate *= l_x;
             next_level_value = interpolate;
 
-            // let pos_idx = q;
-            // let neg_idx = (q + (domain_size_current/2)) % domain_size_current;
-            // // verify positive point
-            // let pos_eval_proof = eval_proofs[l].get(&pos_idx).unwrap();
-            
-            
-            // // assert!(merkle_path_verify::<F,H>(&level_roots[l], pos_idx, pos_eval_proof.evaluation, domain_size_current, &pos_eval_proof.merkle_proof));
-            // assert!(merkle_path_verify::<F,H>(&pos_eval_proof.merkle_proof));
-
-            // // verify negative point
-            // let neg_eval_proof = eval_proofs[l].get(&neg_idx).unwrap();
-            // // assert!(merkle_path_verify::<F,H>(&level_roots[l], neg_idx, neg_eval_proof.evaluation, domain_size_current, &neg_eval_proof.merkle_proof));
-            // assert!(merkle_path_verify::<F,H>(&neg_eval_proof.merkle_proof));
-
-            
-            // let denom = eval_domain_verifier.element(pos_idx) * F::from(2);
-            // next_level_value = 
-            //     // (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (fri_proof.verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
-            //     (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
-            // domain_size_current/=2;
             domain_size_current = domain_size_current>>fri_config.level_reductions_bits[l];
-            // offset = offset * offset;
             offset = offset.pow([reduction as u64]);
         }
-        // match value from evaluations
-        // let q_final = queries[i as usize]%domain_size_current;
         let q_final = (q_start as usize)%(domain_size_current);
         assert_eq!(final_evaluations[q_final], next_level_value);
     }

@@ -39,7 +39,28 @@ pub fn fold_polynomial<F:PrimeField>(polynomial: DensePolynomial<F>, rand: F, re
         folded_coeffs.push(sum);
     }
     DenseUVPolynomial::from_coefficients_vec(folded_coeffs)
-} 
+}
+
+// Generate query proofs for a corresponding query at each FRI level
+pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher_<F>>(queries: Vec<u32>, original_domain: usize, reduction_bits: Vec<u32>, merkle_objs: &Vec<merkle::MerkleTree<F, H>>, query_eval_proofs: &mut Vec<HashMap<usize, QueryEvalProofs<F, H>>>) {
+    for q_start in queries {
+        let mut domain_size_current = original_domain;
+        // We translate each query to first half of its domain
+        let q_init = (q_start as usize)%(original_domain/2);
+        for l in 0..reduction_bits.len() {
+            let q = q_init%domain_size_current;
+            let next_domain_size = domain_size_current>>reduction_bits[l];
+            if !query_eval_proofs[l].contains_key(&q) {
+                query_eval_proofs[l].insert(
+                    q,
+                    QueryEvalProofs::<F,H>{
+                        merkle_proof: merkle_objs[l].proof(q%next_domain_size),
+                    });
+            }
+            domain_size_current = next_domain_size;
+        }
+    }
+}
 
 pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
  -> FRIProof<F, H> {
@@ -117,7 +138,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         let mut leaves: Vec<Vec<F>> = Vec::new();
 
         leaf_groupings[i].chunks(reduction).for_each(|leaf| {
-            let mut leaf_element: Vec<F> = leaf.iter().map(|l| evaluations[l.clone()]).collect();
+            let leaf_element: Vec<F> = leaf.iter().map(|l| evaluations[l.clone()]).collect();
             leaves.push(leaf_element);
         });
 
@@ -147,22 +168,8 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
     );
     println!("Queries : {:?}", queries);
     
-    for q_start in queries {
-        let mut domain_size_current = original_domain;
-        // We translate each query to first half of its domain
-        let q_init = (q_start as usize)%(original_domain/2);
-        for l in 0..num_levels {
-            let q = q_init%domain_size_current;
-            if !query_eval_proofs[l].contains_key(&q) {
-                query_eval_proofs[l].insert(
-                    q,
-                    QueryEvalProofs::<F,H>{
-                        merkle_proof: merkle_objs[l].proof(q%(domain_size_current>>fri_config.level_reductions_bits[l])),
-                    });
-            }
-            domain_size_current = domain_size_current>>fri_config.level_reductions_bits[l];
-        }
-    }
+    // Generate query proofs
+    generate_query_eval_proofs::<F,H>(queries, original_domain, fri_config.level_reductions_bits, &merkle_objs, &mut query_eval_proofs);
 
     FRIProof { 
         final_evaluations: final_level_evaluations, 
