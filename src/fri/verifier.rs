@@ -1,7 +1,7 @@
 use ark_ff::PrimeField;
 use ark_poly::{GeneralEvaluationDomain, EvaluationDomain};
 
-use crate::{hashing::hasher::{Hasher_, Permutation}, merkle_tree::merkle::merkle_path_verify, fiat_shamir::fiat_shamir::FiatShamir};
+use crate::{hashing::hasher::{Hasher, Permutation}, merkle_tree::merkle::merkle_path_verify, fiat_shamir::fiat_shamir::FiatShamir};
 
 use super::types::{FRIProof, FriConfig};
 
@@ -34,7 +34,7 @@ pub fn calcualate_next_level_value<F: PrimeField + std::convert::From<i32>>(
     next_level_val
 }
 
-pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>, P: Permutation<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
+pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
     println!("--- Verifying FRI LDE check for degree {:?} ---", degree);
 
     let final_evaluations = fri_proof.final_evaluations;
@@ -44,7 +44,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>, 
     let eval_proofs = fri_proof.query_eval_proofs;
     let level_roots = fri_proof.level_roots;
 
-    let mut fiat_shamir_transform: FiatShamir<F, P> = FiatShamir::new();
+    let mut fiat_shamir_transform: FiatShamir<F, H::Permutation> = FiatShamir::new();
 
     // Extract random verifier challenges from fiat-shamir
     let mut verifier_randoms = vec![];

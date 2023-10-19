@@ -1,10 +1,18 @@
 use std::{ops::{IndexMut, Index}, fmt::Debug};
 
-use super::hasher::Permutation;
+use ark_ff::PrimeField;
+
+use super::hasher::{Permutation, Hasher};
 
 const SPONGE_RATE: usize = 8;
 const SPONGE_CAPACITY: usize = 4;
 const SPONGE_WIDTH: usize = SPONGE_RATE + SPONGE_CAPACITY;
+const NUM_ELEMENTS_HASH_OUTPUT: usize = 4;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HashOutput<F: PrimeField> {
+    pub outputs: [F; NUM_ELEMENTS_HASH_OUTPUT],
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct PoseidonPermutation<F> {
@@ -35,6 +43,26 @@ impl<F: Clone + Default + Debug> Permutation<F> for PoseidonPermutation<F> {
     }
 
     fn permute(&mut self) {
+        todo!()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PoseidonHash;
+impl<F: PrimeField> Hasher<F> for PoseidonHash {
+    type Hash = HashOutput<F>;
+
+    type Permutation = PoseidonPermutation<F>;
+
+    fn hash_no_pad(data: &[F]) -> Self::Hash {
+        todo!()
+    }
+
+    fn hash_two_to_one(data1:Self::Hash, data2: Self::Hash) -> Self::Hash {
+        todo!()
+    }
+
+    fn hash_as_field(hash: Self::Hash) -> F {
         todo!()
     }
 }

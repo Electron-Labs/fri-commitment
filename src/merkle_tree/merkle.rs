@@ -1,10 +1,10 @@
 use ark_ff::PrimeField;
 
-use crate::hashing::hasher::Hasher_;
+use crate::hashing::hasher::Hasher;
 
 // TODO : generalise for different kind of leaves (hash_n_or_noop (< HASH_OUT size leaves, hash_n_to_m size leaves)
 #[derive(Clone)]
-pub struct MerkleTree<F: PrimeField, H: Hasher_<F>> {
+pub struct MerkleTree<F: PrimeField, H: Hasher<F>> {
     pub root_cap: Option<Vec<H::Hash>>,
     levels: Vec<Vec<H::Hash>>, // Precompute hash values at each level
     pub leaves: Vec<Vec<F>>,
@@ -13,7 +13,7 @@ pub struct MerkleTree<F: PrimeField, H: Hasher_<F>> {
 }
 
 #[derive(Clone, Debug)]
-pub struct MerkleProof<F: PrimeField, H: Hasher_<F>> {
+pub struct MerkleProof<F: PrimeField, H: Hasher<F>> {
     pub leaf: Vec<F>,
     pub leaf_idx: usize,
     // merkle_cap_bits: u32,
@@ -21,12 +21,12 @@ pub struct MerkleProof<F: PrimeField, H: Hasher_<F>> {
     root_cap: Vec<H::Hash>, // indexes of each node to determine left or right direction
 }
 
-pub fn merkle_path_verify<F: PrimeField, H: Hasher_<F>>(proof: &MerkleProof<F, H>) -> bool {
+pub fn merkle_path_verify<F: PrimeField, H: Hasher<F>>(proof: &MerkleProof<F, H>) -> bool {
     let depth = proof.proof.len();
 
     let mut curr_idx = proof.leaf_idx;
     // TODO Change point addition when integrate sponge hasher
-    let mut computed_val = H::hash(proof.leaf.iter().sum());//proof.leaf;
+    let mut computed_val = H::hash_no_pad(&proof.leaf);//proof.leaf;
     // compute root
     for i in 0..depth {
         if curr_idx%2 == 0 {
@@ -44,7 +44,7 @@ pub fn merkle_path_verify<F: PrimeField, H: Hasher_<F>>(proof: &MerkleProof<F, H
     computed_val == proof.root_cap[curr_idx]
 }
 
-impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
+impl<F: PrimeField, H: Hasher<F>> MerkleTree<F, H> {
     // Start a new merkle tree
     pub fn new(merkle_cap_bits: u32) -> Self {
         Self {
@@ -71,7 +71,7 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
 
         let mut levels: Vec<Vec<H::Hash>> = Vec::new();
 
-        let first_level = self.leaves.iter().map(|l| H::hash(l.iter().sum())).collect();
+        let first_level = self.leaves.iter().map(|l| H::hash_no_pad(&l)).collect();
         levels.push(first_level);
 
         let last_level = num_levels-self.merkle_cap_bits as usize;
@@ -125,10 +125,10 @@ impl<F: PrimeField, H: Hasher_<F>> MerkleTree<F, H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{fields::goldilocks_field::Fq, hashing::hasher::Sha256_};
+    use crate::{fields::goldilocks_field::Fq, hashing::poseidon::PoseidonHash};
     #[test]
     fn test_merkle() {
-        let mut tree = MerkleTree::<Fq, Sha256_<Fq>>::new(2);
+        let mut tree = MerkleTree::<Fq, PoseidonHash>::new(2);
 
         let num_leaves = 16;
 

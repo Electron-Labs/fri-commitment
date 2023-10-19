@@ -2,7 +2,7 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use ark_ff::PrimeField;
 
-use crate::{hashing::hasher::Hasher_, merkle_tree::merkle};
+use crate::{hashing::hasher::Hasher, merkle_tree::merkle};
 
 #[derive(Clone)]
 pub struct FriConfig {
@@ -14,12 +14,12 @@ pub struct FriConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct QueryEvalProofs<F: PrimeField,H: Hasher_<F>> {
+pub struct QueryEvalProofs<F: PrimeField,H: Hasher<F>> {
     pub merkle_proof: merkle::MerkleProof<F, H>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FRIProof<F: PrimeField, H:Hasher_<F>> {
+pub struct FRIProof<F: PrimeField, H:Hasher<F>> {
     pub final_evaluations: Vec<F>,
     pub query_eval_proofs: Vec<HashMap<usize, QueryEvalProofs<F,H>>>, // len -> number of rounds
     pub level_roots: Vec<Vec<H::Hash>>,

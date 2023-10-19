@@ -3,7 +3,7 @@ use std::{collections::HashMap, marker::PhantomData};
 use ark_ff::PrimeField;
 use ark_poly::{univariate::DensePolynomial, GeneralEvaluationDomain, EvaluationDomain, DenseUVPolynomial, Polynomial};
 
-use crate::{hashing::hasher::{Hasher_, Permutation}, merkle_tree::merkle, fri::utils::validate_fri_config, fiat_shamir::fiat_shamir::FiatShamir};
+use crate::{hashing::hasher::{Hasher, Permutation}, merkle_tree::merkle, fri::utils::validate_fri_config, fiat_shamir::fiat_shamir::FiatShamir};
 
 use super::types::{FRIProof, FriConfig, QueryEvalProofs};
 
@@ -41,7 +41,7 @@ pub fn fold_polynomial<F:PrimeField>(polynomial: DensePolynomial<F>, rand: F, re
 }
 
 // Generate query proofs for a corresponding query at each FRI level
-pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher_<F>>(queries: Vec<u64>, original_domain: usize, reduction_bits: Vec<u32>, merkle_objs: &Vec<merkle::MerkleTree<F, H>>, query_eval_proofs: &mut Vec<HashMap<usize, QueryEvalProofs<F, H>>>) {
+pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher<F>>(queries: Vec<u64>, original_domain: usize, reduction_bits: Vec<u32>, merkle_objs: &Vec<merkle::MerkleTree<F, H>>, query_eval_proofs: &mut Vec<HashMap<usize, QueryEvalProofs<F, H>>>) {
     for q_start in queries {
         let mut domain_size_current = original_domain;
         // We translate each query to first half of its domain
@@ -61,9 +61,9 @@ pub fn generate_query_eval_proofs<F: PrimeField, H: Hasher_<F>>(queries: Vec<u64
     }
 }
 
-pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>, P: Permutation<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
+pub fn generate_fri_proof<F: PrimeField, H: Hasher<F>> (polynomial: DensePolynomial<F>, fri_config: FriConfig)
  -> FRIProof<F, H> {
-    let mut fiat_shamir_transform: FiatShamir<F, P> = FiatShamir::new();
+    let mut fiat_shamir_transform: FiatShamir<F, H::Permutation> = FiatShamir::new();
 
     let coefficients_length = polynomial.coeffs.len();
 
