@@ -6,9 +6,37 @@ use crate::{hashing::hasher::Hasher_, merkle_tree::merkle::merkle_path_verify, f
 
 use super::types::{FRIProof, FriConfig};
 
+// Interpolates the previous level (xi,yi) and uses verifier challenge to compute value at next level
+pub fn calcualate_next_level_value<F: PrimeField + std::convert::From<i32>>(
+    level_query_points: Vec<usize>,
+    level_query_evaluations: Vec<F>,
+    rando: F,
+    eval_domain: GeneralEvaluationDomain<F>
+) -> F {
+    assert_eq!(level_query_points.len(), level_query_evaluations.len());
+    // L(x) = ∑ (i=1-n) Yi ∏ (j=1-n, i≠j) (X-Xj)/(Xi-Xj)
+    // C = ∏ (j=1-n) (X-Xj)
+    // L(x) = ∑ (i=1-n) Yi * C/((X-Xi) * ∏(j=1-n, i≠j)(Xi-Xj))
+    let mut next_level_val = F::ZERO;
+
+    let c: F = level_query_points.clone().into_iter().map(|q| rando-eval_domain.element(q)).product();
+
+    for i in 0..level_query_points.len(){
+        let d = eval_domain.element(level_query_points[i]);
+        let denom: F = level_query_points.clone()
+            .iter()
+            .enumerate()
+            .filter(|(j,_q)| i != *j)
+            .map(|(_j, q)| {d-eval_domain.element(*q)})
+            .product();
+        next_level_val += (level_query_evaluations[i]*c)/((rando-d)*denom);
+    }
+
+    next_level_val
+}
+
 pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> (fri_config: FriConfig, degree: u32, fri_proof: FRIProof<F,H>) -> bool {
     println!("--- Verifying FRI LDE check for degree {:?} ---", degree);
-    // let queries: Vec<usize> = T_QUERIES.clone().into();
 
     let final_evaluations = fri_proof.final_evaluations;
 
@@ -19,6 +47,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
 
     let mut transcript = Transcript::new(b"new transcript");
 
+    // Extract random verifier challenges from fiat-shamir
     let mut verifier_randoms = vec![];
     for root in level_roots.iter() {
         let merkle_root_cap_field:Vec<F> = root.iter().map(|r| H::hash_as_field(r.clone())).collect();
@@ -27,6 +56,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
         verifier_randoms.push(verifier_rand);
     }
 
+    // Extract queries from fiat-shamir 
     transcript.observe_elements(b"final evals", &final_evaluations);
     let queries = <Transcript as TranscriptProtocol<F>>::get_challenge_indices(
         &mut transcript,
@@ -42,13 +72,11 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     println!("original domain size {:?}", original_domain_size);
     println!("levels to iterate {:?}", levels_to_iterate);
 
+    // [TODO] no need to calculate when we move to sending coeffs since no need of interpolation required
     let mut final_offset = F::GENERATOR;
     for exp in fri_config.level_reductions_bits.clone() {
         final_offset = final_offset.pow([exp as u64]);
     }
-    // for _ in 0..levels_to_iterate {
-    //     final_offset = final_offset * final_offset;
-    // }
 
     assert_eq!(final_evaluations.len() as u32, fri_config.blow_up_factor*(fri_config.last_polynomial_degree+1));
     
@@ -68,19 +96,40 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     assert!(final_evaluation_degree_correct);
 
     println!("*** Verifying evaluation proof and consistency checks for each query ***");
-    // for i in 0..fri_config.num_query {
     for q_start in queries {
         // println!("Starting to verify query -- {:?}", i+1);
         println!("Starting to verify query -- {:?}", q_start);
         let mut domain_size_current = original_domain_size as usize;
-        // let q_init = queries[i as usize];
+        
+        // Bring query to first half of domain
         let q_init = (q_start as usize)%(domain_size_current/2);
+
+        // Contains value of element in next folded level for consistency check
         let mut next_level_value: F = F::one();
+
         let mut offset = F::GENERATOR;
+
         for l in 0..levels_to_iterate {
             let reduction = 1<<fri_config.level_reductions_bits[l];
             let q = q_init%domain_size_current;
+            
             println!("Verifying query {:?} at level {:?}",q,l);
+
+            // Extract evaluation proof for the query at the level l
+            let eval_proof = eval_proofs[l].get(&q).unwrap();
+
+            // Verify merkle proof asserting leaf belongs to the commited root
+            assert!(merkle_path_verify::<F,H>(&eval_proof.merkle_proof)); 
+
+            // Contains all evaluations of this level required corresponding to that query for evaluation of next value in the reduced polynomail evaluations
+            // Evaluations will always be sorted in the order of their sorted queries
+            let evaluations = eval_proof.merkle_proof.leaf.clone();
+
+            if l !=0 {
+                // check prev round to current round consistency
+                // (q/reduction) -> maps the query index to the index in corresponding merkle leaf
+                assert_eq!(next_level_value, evaluations[q/reduction], "Consistency check failed for query {:?} between levels {:?} and {:?}", q, l-1, l);
+            }
 
             let query_addition_factor = domain_size_current/reduction;
 
@@ -91,82 +140,17 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
                 level_query_set.push(tmp);
             }
             level_query_set.sort();
-            println!("level::{}, query_set::{:?}", l, level_query_set);
-            let eval_proof = eval_proofs[l].get(&q).unwrap();
-
-            let evaluations = eval_proof.merkle_proof.leaf.clone();
-            println!("query: {}, reduction: {}, next_level_value: {:?}\nevaluations: {:?}", q, reduction, next_level_value, evaluations);
-
-            if l !=0 {
-                // check prev round to current round consistency
-                assert_eq!(next_level_value, evaluations[q/reduction], "Consistency check failed for query {:?} between levels {:?} and {:?}", q, l-1, l);
-            }
-
-            assert!(merkle_path_verify::<F,H>(&eval_proof.merkle_proof)); 
-
-            // let evaluations = eval_proof.merkle_proof
-            // let evaluations: Vec<F> = eval_proof.merkle_proof.iter().zip(level_query_set.clone()).map(|(p, lq)| {
-            //     assert!(merkle_path_verify::<F,H>(&p)); 
-            //     assert_eq!(p.leaf_idx, lq);
-            //     p.leaf
-            // }).collect();
 
             let mut eval_domain_verifier: GeneralEvaluationDomain<F> = GeneralEvaluationDomain::new(domain_size_current).unwrap();
             eval_domain_verifier = eval_domain_verifier.get_coset(offset).expect("Error in getting coset");
 
             let verifier_rand = verifier_randoms[l];
-            let l_x: F = level_query_set.iter().map(|&i_l| {
-                let d = eval_domain_verifier.element(i_l);
-                verifier_rand-d
-            })
-            .product();
-            let barycentric_weights = level_query_set
-                .iter()
-                .map(|&i_l| {
-                    level_query_set
-                        .iter()
-                        .filter(|&&j_l| j_l != i_l)
-                        .map(|j_l| {
-                            eval_domain_verifier.element(i_l) - eval_domain_verifier.element(*j_l)
-                        })
-                        .product()
-                })
-                .collect::<Vec<F>>();
 
-            let mut interpolate = F::ZERO;
-            for i in 0..level_query_set.len() {
-                let t = evaluations[i] / ((verifier_rand-eval_domain_verifier.element(level_query_set[i])) * barycentric_weights[i]);
-                interpolate += t;
-            }
-            interpolate *= l_x;
-            next_level_value = interpolate;
+            next_level_value = calcualate_next_level_value(level_query_set, evaluations, verifier_rand, eval_domain_verifier);;
 
-            // let pos_idx = q;
-            // let neg_idx = (q + (domain_size_current/2)) % domain_size_current;
-            // // verify positive point
-            // let pos_eval_proof = eval_proofs[l].get(&pos_idx).unwrap();
-            
-            
-            // // assert!(merkle_path_verify::<F,H>(&level_roots[l], pos_idx, pos_eval_proof.evaluation, domain_size_current, &pos_eval_proof.merkle_proof));
-            // assert!(merkle_path_verify::<F,H>(&pos_eval_proof.merkle_proof));
-
-            // // verify negative point
-            // let neg_eval_proof = eval_proofs[l].get(&neg_idx).unwrap();
-            // // assert!(merkle_path_verify::<F,H>(&level_roots[l], neg_idx, neg_eval_proof.evaluation, domain_size_current, &neg_eval_proof.merkle_proof));
-            // assert!(merkle_path_verify::<F,H>(&neg_eval_proof.merkle_proof));
-
-            
-            // let denom = eval_domain_verifier.element(pos_idx) * F::from(2);
-            // next_level_value = 
-            //     // (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (fri_proof.verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
-            //     (((pos_eval_proof.evaluation+neg_eval_proof.evaluation))/(F::from(2))) + (verifier_randoms[l]*((pos_eval_proof.evaluation-neg_eval_proof.evaluation)/denom));
-            // domain_size_current/=2;
             domain_size_current = domain_size_current>>fri_config.level_reductions_bits[l];
-            // offset = offset * offset;
             offset = offset.pow([reduction as u64]);
         }
-        // match value from evaluations
-        // let q_final = queries[i as usize]%domain_size_current;
         let q_final = (q_start as usize)%(domain_size_current);
         assert_eq!(final_evaluations[q_final], next_level_value);
     }
