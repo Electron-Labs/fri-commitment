@@ -1,5 +1,5 @@
 use sha3::{Digest, Keccak256};
-
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 /* 
 
 refereces: https://eprint.iacr.org/2021/582.pdf (ethstark)
@@ -23,7 +23,7 @@ pub fn validate_nonce(seed_data: &[u8; 32], trial_nonce: u64, pow_bits: u8) -> b
 pub fn find_valid_nonce(seed_data: &[u8; 32], difficulty_level: u8) -> Option<u64> {
     let computed_hash = hash(seed_data, difficulty_level);
     let threshold = 1 << (64 - difficulty_level);
-    (0..u64::MAX).find(|&test_nonce| {
+    (0..u64::MAX).into_par_iter().find_any(|&test_nonce| {
         check_nonce_validity(&computed_hash, test_nonce, threshold)
     })
 }
