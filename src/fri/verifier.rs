@@ -67,7 +67,7 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
     let valid = validate_nonce(seed, FRIProof.nonce, FriConfig.pow_bits);
     
     if !valid {
-        // Log an error message or handle the error as needed
+        // log error
         eprintln!("Nonce validation failed.");
         return Err("Nonce validation failed".to_string());
     } 
