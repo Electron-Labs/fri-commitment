@@ -15,7 +15,7 @@ mod test {
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
         let poly: DensePolynomial<Fq> = DenseUVPolynomial::from_coefficients_vec(coeffs);
 
-        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 1, level_reductions_bits: todo!() };
+        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 1, level_reductions_bits: todo!()};
 
         let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         
@@ -31,7 +31,7 @@ mod test {
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
         let poly: DensePolynomial<Fq> = DenseUVPolynomial::from_coefficients_vec(coeffs);
 
-        let fri_config = FriConfig { num_query: 1, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 0, level_reductions_bits: vec![2,1] };
+        let fri_config = FriConfig { num_query: 1, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 0, level_reductions_bits: vec![2,1], pow_bits: 2 };
 
         let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         
@@ -50,7 +50,7 @@ mod test {
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
         let poly: DensePolynomial<Fq> = DenseUVPolynomial::from_coefficients_vec(coeffs);
 
-        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 2, level_reductions_bits: todo!() };
+        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 0 , merkle_cap_bits: 2, level_reductions_bits: todo!()};
 
         let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         
@@ -66,7 +66,7 @@ mod test {
         // 19 + 56x + 34x^2 + 48x^3 + 43x^4 + 37x^5 + 10x^6 + 10x^7
         let poly: DensePolynomial<Fq> = DenseUVPolynomial::from_coefficients_vec(coeffs);
 
-        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 3 , merkle_cap_bits: 2, level_reductions_bits: todo!() };
+        let fri_config = FriConfig { num_query: 4, blow_up_factor: 2, last_polynomial_degree: 3 , merkle_cap_bits: 2, level_reductions_bits: todo!(), pow_bits: 10};
 
         let fri_proof = generate_fri_proof::<Fq, Sha256_<Fq>>(poly, fri_config.clone());
         

@@ -4,6 +4,8 @@ use ark_ff::PrimeField;
 use ark_poly::{univariate::DensePolynomial, GeneralEvaluationDomain, EvaluationDomain, DenseUVPolynomial, Polynomial};
 use merlin::Transcript;
 
+use super::grinding::find_valid_nonce;
+
 use crate::{hashing::hasher::Hasher_, merkle_tree::merkle, fri::utils::validate_fri_config, fiat_shamir::fiat_shamir::TranscriptProtocol};
 
 use super::types::{FRIProof, FriConfig, QueryEvalProofs};
@@ -157,6 +159,24 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         offset = offset.pow([reduction as u64]);
     }
 
+
+
+
+
+    // grinding 
+
+    let pow_bits = FriConfig.pow_bits;
+    let mut nonce = None;
+    if pow_bits > 0 {
+        let mut seed = [0u8; 32];
+        transcript.challenge_bytes(b"seed", &mut seed);
+        let nonce_value = find_valid_nonce(&seed, pow_bits).expect("nonce not found");
+        transcript.observe_elements(b"nonce", &nonce_value.to_be_bytes());
+        nonce = Some(nonce_value);
+    }
+
+
+
     transcript.observe_elements(b"final evals", &final_level_evaluations);
 
     // Iterate over each query
@@ -175,6 +195,7 @@ pub fn generate_fri_proof<F: PrimeField, H: Hasher_<F>> (polynomial: DensePolyno
         final_evaluations: final_level_evaluations, 
         query_eval_proofs,
         level_roots: merkle_roots,
+        nonce: nonce,
         _h: PhantomData,
     }
  }

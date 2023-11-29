@@ -4,6 +4,7 @@ use merlin::Transcript;
 
 use crate::{hashing::hasher::Hasher_, merkle_tree::merkle::merkle_path_verify, fiat_shamir::fiat_shamir::TranscriptProtocol};
 
+use super::grinding::validate_nonce;
 use super::types::{FRIProof, FriConfig};
 
 // Interpolates the previous level (xi,yi) and uses verifier challenge to compute value at next level
@@ -55,6 +56,27 @@ pub fn verify_fri_proof<F: PrimeField + std::convert::From<i32>, H: Hasher_<F>> 
         let verifier_rand: F = transcript.get_challenge(b"alpha");
         verifier_randoms.push(verifier_rand);
     }
+
+
+    
+
+    // verify grinding
+
+    let mut seed = [0u8; 32];
+    transcript.challenge_bytes(b"seed", &mut seed);
+    let valid = validate_nonce(seed, FRIProof.nonce, FriConfig.pow_bits);
+    
+    if !valid {
+        // Log an error message or handle the error as needed
+        eprintln!("Nonce validation failed.");
+        return Err("Nonce validation failed".to_string());
+    } 
+    transcript.observe_elements(b"nonce", &nonce.from_be_bytes);
+
+
+
+
+
 
     // Extract queries from fiat-shamir 
     transcript.observe_elements(b"final evals", &final_evaluations);
